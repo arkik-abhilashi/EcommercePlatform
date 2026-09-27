@@ -1,0 +1,79 @@
+import User from "../models/User.model.js";
+import Product from "../models/Product.model.js";
+import Order from "../models/Order.model.js";
+
+export const getAnalyticsData = async () => {
+  const totalUsers = await User.countDocuments();
+  const totalProducts = await Product.countDocuments();
+
+  const salesData = await Order.aggregate([
+    {
+      $group: {
+        _id: null,
+        totalSales: { $sum: 1 },
+        totalRevenue: { $sum: "$totalAmount" },
+      },
+    },
+  ]);
+  const { totalSales, totalRevenue } = salesData[0] || {
+    totalSales: 0,
+    totalRevenue: 0,
+  };
+
+  return {
+    users: totalUsers,
+    products: totalProducts,
+    totalSales,
+    totalRevenue,
+  };
+};
+
+export const getDailySalesData = async (startDate, endDate) => {
+  try {
+    const dailySalesData = await Order.aggregate([
+      {
+        $match: {
+          createdAt: {
+            $gte: startDate,
+            $lte: endDate,
+          },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          sales: { $sum: 1 },
+          revenue: { $sum: "$totalAmount" },
+        },
+      },
+      {
+        $sort: { _id: 1 },
+      },
+    ]);
+    const dateArray = generateDateArray(startDate, endDate);
+
+    return dateArray.map((date) => {
+      const foundData = dailySalesData.find((data) => data._id === date);
+
+      return {
+        date,
+        sales: foundData ? foundData.sales : 0,
+        revenue: foundData ? foundData.revenue : 0,
+      };
+    });
+  } catch (error) {
+    console.error("Error fetching daily sales data:", error);
+    throw new Error("Error fetching daily sales data");
+  }
+};
+
+function generateDateArray(startDate, endDate) {
+  const date = [];
+  let currentDate = new Date(startDate);
+
+  while (currentDate <= endDate) {
+    date.push(currentDate.toISOString().split("T")[0]);
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  return date;
+}
